@@ -62,7 +62,13 @@ jobs:
           EOL
           chmod 600 .env || true
 
+          # Network/build settings: avoid bake/buildx
+          export DOCKER_BUILDKIT=0
+          export COMPOSE_DOCKER_CLI_BUILD=0
+
           # Build and (re)start
+          # Pre-pull base image to avoid on-build fetches
+          docker pull node:20-alpine || true
           docker compose pull || true
           docker compose up -d --build
 
