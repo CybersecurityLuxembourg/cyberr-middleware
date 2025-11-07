@@ -70,7 +70,8 @@ jobs:
           # Pre-pull base image to avoid on-build fetches
           docker pull node:20-alpine || true
           docker compose pull || true
-          docker compose up -d --build
+          docker compose build --no-cache
+          docker compose up -d
 
           # Basic health check
           ok=0
