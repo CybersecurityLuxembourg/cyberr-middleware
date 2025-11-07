@@ -61,11 +61,23 @@ if (CORS_ORIGINS.length > 0) {
 }
 
 // Basic rate limit to prevent abuse
+// When behind a reverse proxy (Apache), we need to safely extract the real IP
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   limit: Number(process.env.RATE_LIMIT_PER_MINUTE || 60),
   standardHeaders: 'draft-8',
-  legacyHeaders: false
+  legacyHeaders: false,
+  // Use X-Forwarded-For if trust proxy is enabled, otherwise use direct IP
+  keyGenerator: (req, res) => {
+    if (TRUST_PROXY) {
+      // Extract real IP from X-Forwarded-For (set by Apache)
+      const forwarded = req.get('x-forwarded-for');
+      return forwarded ? forwarded.split(',')[0].trim() : req.ip;
+    }
+    return req.ip;
+  },
+  // Skip rate limiting for health checks
+  skip: (req, res) => req.path === '/healthz'
 });
 app.use(limiter);
 
@@ -139,7 +151,7 @@ app.get('/jobs', checkApiKey, async (req, res) => {
       logger.info({ requestId, cacheKey }, 'Cache miss, fetching upstream');
       
       const controller = new AbortController();
-      const timeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
+      const timeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 30000); // Increased default to 30s
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       let resp;
