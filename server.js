@@ -79,8 +79,15 @@ function checkApiKey(req, res, next) {
   if (!REQUIRE_API_KEY) return next();
   const key = req.header(API_KEY_HEADER);
   if (!key || key !== API_KEY_VALUE) {
+    logger.warn({
+      path: req.path,
+      headerName: API_KEY_HEADER,
+      provided: !!key,
+      matches: key === API_KEY_VALUE
+    }, 'API key check failed');
     return res.status(401).json({ error: 'unauthorized' });
   }
+  logger.debug({ path: req.path }, 'API key check passed');
   return next();
 }
 
@@ -104,35 +111,81 @@ function buildUpstreamURL(originalQuery) {
 
 // GET /jobs -> forwards to upstream with bearer and caches the response
 app.get('/jobs', checkApiKey, async (req, res) => {
+  const requestId = Math.random().toString(36).substring(7);
+  const startTime = Date.now();
+  
   try {
     const upstreamURL = buildUpstreamURL(req.query);
     const cacheKey = upstreamURL.toString();
 
+    logger.info({
+      requestId,
+      method: req.method,
+      path: req.path,
+      query: req.query,
+      origin: req.get('origin'),
+      userAgent: req.get('user-agent'),
+      upstreamURL: upstreamURL.toString()
+    }, 'Incoming request');
+
     // Serve from cache if present
     let data = cache.get(cacheKey);
-    if (!data) {
+    let fromCache = false;
+    
+    if (data) {
+      fromCache = true;
+      logger.info({ requestId, cacheKey }, 'Cache hit');
+    } else {
+      logger.info({ requestId, cacheKey }, 'Cache miss, fetching upstream');
+      
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), Number(process.env.UPSTREAM_TIMEOUT_MS || 8000));
+      const timeoutMs = Number(process.env.UPSTREAM_TIMEOUT_MS || 8000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-      const resp = await fetch(upstreamURL, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${UPSTREAM_BEARER}`,
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      }).catch((err) => {
-        throw err.name === 'AbortError' ? new Error('Upstream timeout') : err;
-      }).finally(() => clearTimeout(timeout));
+      let resp;
+      try {
+        resp = await fetch(upstreamURL, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${UPSTREAM_BEARER}`,
+            'Accept': 'application/json'
+          },
+          signal: controller.signal
+        });
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        const errMsg = fetchErr.name === 'AbortError' ? 'Upstream timeout' : fetchErr.message;
+        logger.error({
+          requestId,
+          error: errMsg,
+          upstreamURL: upstreamURL.toString(),
+          timeoutMs
+        }, 'Fetch error');
+        throw new Error(errMsg);
+      }
+      clearTimeout(timeout);
+
+      logger.info({
+        requestId,
+        upstreamStatus: resp.status,
+        upstreamStatusText: resp.statusText,
+        upstreamHeaders: Object.fromEntries(resp.headers.entries())
+      }, 'Upstream response received');
 
       if (!resp.ok) {
         const text = await resp.text();
-        logger.warn({ status: resp.status, body: text.slice(0, 300) }, 'Upstream non-200');
-        return res.status(resp.status).json({ error: 'upstream_error' });
+        logger.error({
+          requestId,
+          upstreamStatus: resp.status,
+          upstreamBody: text.slice(0, 500),
+          upstreamURL: upstreamURL.toString()
+        }, 'Upstream returned non-200');
+        return res.status(resp.status).json({ error: 'upstream_error', details: text.slice(0, 200) });
       }
 
       data = await resp.json();
       cache.set(cacheKey, data);
+      logger.info({ requestId, cacheKey, dataSize: JSON.stringify(data).length }, 'Data cached');
     }
 
     // Simple ETag based on string length + first bytes
@@ -142,20 +195,50 @@ app.get('/jobs', checkApiKey, async (req, res) => {
     res.set('Cache-Control', `public, max-age=${Math.max(30, Math.floor(cacheTTL / 2))}`);
 
     if (req.headers['if-none-match'] === etag) {
+      logger.info({ requestId, etag }, 'Returning 304 Not Modified');
       return res.status(304).end();
     }
 
+    const duration = Date.now() - startTime;
+    logger.info({
+      requestId,
+      status: 200,
+      fromCache,
+      duration,
+      dataSize: bodyString.length,
+      etag
+    }, 'Request completed successfully');
+
     return res.json(data);
   } catch (err) {
-    logger.error({ err }, 'Middleware error');
-    return res.status(502).json({ error: 'bad_gateway' });
+    const duration = Date.now() - startTime;
+    logger.error({
+      requestId,
+      error: err.message,
+      stack: err.stack,
+      duration
+    }, 'Middleware error - returning 502');
+    return res.status(502).json({ error: 'bad_gateway', requestId });
   }
 });
 
 app.use((err, req, res, next) => {
-  logger.warn({ err }, 'Request error');
   const status = (err && (err.status || err.statusCode)) || (/cors/i.test(err?.message || '') ? 403 : undefined);
-  res.status(status && Number(status) >= 400 && Number(status) < 600 ? status : 500).json({ error: status === 403 ? 'forbidden' : 'internal_error' });
+  const finalStatus = status && Number(status) >= 400 && Number(status) < 600 ? status : 500;
+  
+  logger.error({
+    path: req.path,
+    method: req.method,
+    status: finalStatus,
+    errorMessage: err?.message,
+    errorStack: err?.stack,
+    isCorsError: /cors/i.test(err?.message || '')
+  }, 'Unhandled request error');
+  
+  res.status(finalStatus).json({
+    error: finalStatus === 403 ? 'forbidden' : 'internal_error',
+    message: err?.message
+  });
 });
 
 // 404 fallback
