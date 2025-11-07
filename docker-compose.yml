@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  job-middleware:
+    build: .
+    ports:
+      - "8002:8002"
+    environment:
+      - UPSTREAM_BEARER=${UPSTREAM_BEARER}
+      - UPSTREAM_URL=${UPSTREAM_URL:-https://app.cyberr.ai/backend/api/v1/jobs}
+      - REQUIRE_API_KEY=${REQUIRE_API_KEY:-false}
+      - MIDDLEWARE_API_KEY=${MIDDLEWARE_API_KEY:-change-me}
+      - API_KEY_HEADER=${API_KEY_HEADER:-x-internal-token}
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - CACHE_TTL_SECONDS=${CACHE_TTL_SECONDS:-300}
+      - UPSTREAM_TIMEOUT_MS=${UPSTREAM_TIMEOUT_MS:-8000}
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped
