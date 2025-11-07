@@ -71,10 +71,6 @@ jobs:
           export HTTPS_PROXY="${{ secrets.PROXY }}"
           export NO_PROXY="localhost,127.0.0.1"
 
-          # Verify critical files are present
-          echo "=== Verifying synced files ==="
-          ls -la package.json package-lock.json server.js Dockerfile docker-compose.yml
-
           # Build and (re)start
           # Pre-pull base image to avoid on-build fetches
           docker pull node:20-alpine || true
