@@ -2,7 +2,9 @@ services:
   job-middleware:
     build: .
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
+    env_file:
+      - .env
     environment:
       - UPSTREAM_BEARER=${UPSTREAM_BEARER}
       - UPSTREAM_URL=${UPSTREAM_URL:-https://app.cyberr.ai/backend/api/v1/jobs}
@@ -14,4 +16,5 @@ services:
       - UPSTREAM_TIMEOUT_MS=${UPSTREAM_TIMEOUT_MS:-8000}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-60}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TRUST_PROXY=${TRUST_PROXY:-true}
     restart: unless-stopped
