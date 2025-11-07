@@ -1,0 +1,74 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SERVER_PATH: /var/www/cyberr-middleware
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.PRODUCTION_ENV_SSH_PRIVATE_KEY }}
+          known_hosts: 'placeholder'
+          if_key_exists: replace
+
+      - name: Add bastion to known_hosts
+        run: ssh-keyscan -p ${{ secrets.BASTION_SSH_PORT }} -H ${{ secrets.BASTION_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Add target to known_hosts via bastion
+        run: ssh -p ${{ secrets.BASTION_SSH_PORT }} ${{ secrets.BASTION_USER }}@${{ secrets.BASTION_HOST }} ssh-keyscan -H ${{ secrets.PRODUCTION_ENV_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync repository to server path
+        run: |
+          rsync -avz --delete \
+            -e "ssh -J ${{ secrets.BASTION_USER }}@${{ secrets.BASTION_HOST }}:${{ secrets.BASTION_SSH_PORT }}" \
+            --exclude 'node_modules' \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '.env' \
+            ./ ${{ secrets.SERVER_USERNAME }}@${{ secrets.PRODUCTION_ENV_HOST }}:${{ env.SERVER_PATH }}/
+
+      - name: Create .env and deploy with docker compose
+        run: |
+          ssh -J ${{ secrets.BASTION_USER }}@${{ secrets.BASTION_HOST }}:${{ secrets.BASTION_SSH_PORT }} \
+            ${{ secrets.SERVER_USERNAME }}@${{ secrets.PRODUCTION_ENV_HOST }} "bash -s" << 'ENDSSH'
+          set -euo pipefail
+          cd "${{ env.SERVER_PATH }}"
+
+          # Create/overwrite .env for docker compose variable substitution
+          cat > .env << 'EOL'
+          # Required
+          UPSTREAM_BEARER=${{ secrets.UPSTREAM_BEARER }}
+
+          # Optional
+          UPSTREAM_URL=${{ secrets.UPSTREAM_URL }}
+          REQUIRE_API_KEY=${{ secrets.REQUIRE_API_KEY }}
+          MIDDLEWARE_API_KEY=${{ secrets.MIDDLEWARE_API_KEY }}
+          API_KEY_HEADER=${{ secrets.API_KEY_HEADER }}
+          CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+          CACHE_TTL_SECONDS=${{ secrets.CACHE_TTL_SECONDS }}
+          UPSTREAM_TIMEOUT_MS=${{ secrets.UPSTREAM_TIMEOUT_MS }}
+          RATE_LIMIT_PER_MINUTE=${{ secrets.RATE_LIMIT_PER_MINUTE }}
+          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+          TRUST_PROXY=${{ secrets.TRUST_PROXY }}
+          EOL
+          chmod 600 .env || true
+
+          # Build and (re)start
+          docker compose pull || true
+          docker compose up -d --build
+
+          # Basic health check
+          for i in 1 2 3 4 5; do
+            curl -fsS http://127.0.0.1:8002/healthz && break
+            sleep 3
+          done
+          ENDSSH
