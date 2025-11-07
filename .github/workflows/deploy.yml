@@ -66,11 +66,21 @@ jobs:
           export DOCKER_BUILDKIT=0
           export COMPOSE_DOCKER_CLI_BUILD=0
 
+          # Verify critical files are present
+          echo "=== Verifying synced files ==="
+          ls -la package.json package-lock.json server.js Dockerfile docker-compose.yml
+
+          # Clean Docker build cache to ensure fresh build
+          echo "=== Pruning Docker build cache ==="
+          docker builder prune -af || true
+
           # Build and (re)start
           # Pre-pull base image to avoid on-build fetches
           docker pull node:20-alpine || true
           docker compose pull || true
-          docker compose build --no-cache
+          echo "=== Building with --no-cache, capturing full output ==="
+          docker compose build --no-cache --progress=plain 2>&1 | tee /tmp/build.log
+          echo "=== Starting services ==="
           docker compose up -d
 
           # Basic health check
