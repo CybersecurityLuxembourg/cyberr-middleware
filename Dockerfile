@@ -2,6 +2,12 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8002
+
+# Accept proxy as build arg
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
 COPY package.json package-lock.json ./
 RUN set -ex && \
     npm --version && \

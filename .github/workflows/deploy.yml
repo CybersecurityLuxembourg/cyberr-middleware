@@ -66,20 +66,25 @@ jobs:
           export DOCKER_BUILDKIT=0
           export COMPOSE_DOCKER_CLI_BUILD=0
 
+          # Configure proxy for Docker build
+          export HTTP_PROXY="${{ secrets.PROXY }}"
+          export HTTPS_PROXY="${{ secrets.PROXY }}"
+          export NO_PROXY="localhost,127.0.0.1"
+
           # Verify critical files are present
           echo "=== Verifying synced files ==="
           ls -la package.json package-lock.json server.js Dockerfile docker-compose.yml
-
-          # Clean Docker build cache to ensure fresh build
-          echo "=== Pruning Docker build cache ==="
-          docker builder prune -af || true
 
           # Build and (re)start
           # Pre-pull base image to avoid on-build fetches
           docker pull node:20-alpine || true
           docker compose pull || true
-          echo "=== Building with --no-cache, capturing full output ==="
-          docker compose build --no-cache --progress=plain 2>&1 | tee /tmp/build.log
+          echo "=== Building with --no-cache and proxy, capturing full output ==="
+          docker compose build --no-cache --progress=plain \
+            --build-arg HTTP_PROXY="$HTTP_PROXY" \
+            --build-arg HTTPS_PROXY="$HTTPS_PROXY" \
+            --build-arg NO_PROXY="$NO_PROXY" \
+            2>&1 | tee /tmp/build.log
           echo "=== Starting services ==="
           docker compose up -d
 
