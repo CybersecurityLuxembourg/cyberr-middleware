@@ -55,7 +55,7 @@ jobs:
           API_KEY_HEADER=${{ secrets.API_KEY_HEADER }}
           CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
           CACHE_TTL_SECONDS=${{ secrets.CACHE_TTL_SECONDS }}
-          UPSTREAM_TIMEOUT_MS=${{ secrets.UPSTREAM_TIMEOUT_MS }}
+          UPSTREAM_TIMEOUT_MS=30000
           RATE_LIMIT_PER_MINUTE=${{ secrets.RATE_LIMIT_PER_MINUTE }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
           TRUST_PROXY=${{ secrets.TRUST_PROXY }}
