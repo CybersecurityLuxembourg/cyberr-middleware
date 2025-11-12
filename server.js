@@ -7,7 +7,21 @@ import { rateLimit } from 'express-rate-limit';
 import { LRUCache } from 'lru-cache';
 import pino from 'pino';
 
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const LOG_TO_FILE = (process.env.LOG_TO_FILE || 'true').toLowerCase() === 'true';
+const LOG_FILE_PATH = process.env.LOG_FILE_PATH || './logs/middleware.log';
+let logger;
+if (LOG_TO_FILE) {
+  const transport = pino.transport({
+    targets: [
+      { target: 'pino/file', level: LOG_LEVEL, options: { destination: 1 } },
+      { target: 'pino/file', level: LOG_LEVEL, options: { destination: LOG_FILE_PATH, mkdir: true } }
+    ]
+  });
+  logger = pino({ level: LOG_LEVEL }, transport);
+} else {
+  logger = pino({ level: LOG_LEVEL });
+}
 
 // ----- Configuration -----
 const PORT = process.env.PORT || 8080;
