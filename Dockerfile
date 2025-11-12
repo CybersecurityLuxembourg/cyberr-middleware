@@ -8,6 +8,9 @@ ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
 
+# Install CA certificates for HTTPS and DNS utilities for debugging
+RUN apk add --no-cache ca-certificates
+
 COPY package.json package-lock.json ./
 RUN set -ex && \
     npm --version && \
