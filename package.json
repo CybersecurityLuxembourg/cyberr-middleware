@@ -15,7 +15,8 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "lru-cache": "^11.2.2",
-    "pino": "^10.1.0"
+    "pino": "^10.1.0",
+    "undici": "^6.19.8"
   },
   "engines": {
     "node": ">=20.0.0"
