@@ -59,6 +59,9 @@ jobs:
           RATE_LIMIT_PER_MINUTE=${{ secrets.RATE_LIMIT_PER_MINUTE }}
           LOG_LEVEL=${{ secrets.LOG_LEVEL }}
           TRUST_PROXY=${{ secrets.TRUST_PROXY }}
+          HTTPS_PROXY=${{ secrets.PROXY }}
+          HTTP_PROXY=${{ secrets.PROXY }}
+          NO_PROXY=localhost,127.0.0.1,app.cyberr.ai
           EOL
           chmod 600 .env || true
 

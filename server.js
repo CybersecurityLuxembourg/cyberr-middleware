@@ -6,6 +6,7 @@ import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import { LRUCache } from 'lru-cache';
 import pino from 'pino';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const LOG_TO_FILE = (process.env.LOG_TO_FILE || 'true').toLowerCase() === 'true';
@@ -30,6 +31,27 @@ const UPSTREAM_BEARER = process.env.UPSTREAM_BEARER;
 if (!UPSTREAM_BEARER) {
   logger.error('Missing UPSTREAM_BEARER env var');
   process.exit(1);
+}
+
+// Optional outbound proxy support for fetch (useful in restricted egress environments)
+const PROXY_URL = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+const NO_PROXY = (process.env.NO_PROXY || process.env.no_proxy || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+try {
+  if (PROXY_URL) {
+    const upstreamHost = new URL(UPSTREAM_URL).hostname;
+    const bypass = NO_PROXY.some(entry => entry === '*' || upstreamHost.endsWith(entry.replace(/^\./, '')));
+    if (!bypass) {
+      setGlobalDispatcher(new ProxyAgent(PROXY_URL));
+      logger.info({ proxyEnabled: true }, 'Using outbound proxy for upstream requests');
+    } else {
+      logger.info({ proxyEnabled: false, reason: 'NO_PROXY match' }, 'Bypassing proxy for upstream');
+    }
+  }
+} catch (e) {
+  logger.warn({ error: e.message }, 'Failed to configure proxy agent');
 }
 
 const REQUIRE_API_KEY = (process.env.REQUIRE_API_KEY || 'false').toLowerCase() === 'true';
@@ -219,6 +241,7 @@ app.get('/jobs', checkApiKey, async (req, res) => {
     const etag = '"' + Buffer.from(bodyString).toString('base64').slice(0, 16) + '"';
     res.set('ETag', etag);
     res.set('Cache-Control', `public, max-age=${Math.max(30, Math.floor(cacheTTL / 2))}`);
+    res.set('X-Request-Id', requestId);
 
     if (req.headers['if-none-match'] === etag) {
       logger.info({ requestId, etag }, 'Returning 304 Not Modified');
@@ -235,6 +258,7 @@ app.get('/jobs', checkApiKey, async (req, res) => {
       etag
     }, 'Request completed successfully');
 
+    res.set('X-Request-Id', requestId);
     return res.json(data);
   } catch (err) {
     const duration = Date.now() - startTime;
@@ -244,6 +268,7 @@ app.get('/jobs', checkApiKey, async (req, res) => {
       stack: err.stack,
       duration
     }, 'Middleware error - returning 502');
+    res.set('X-Request-Id', requestId);
     return res.status(502).json({ error: 'bad_gateway', requestId });
   }
 });
