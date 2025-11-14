@@ -6,7 +6,6 @@ import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
 import { LRUCache } from 'lru-cache';
 import pino from 'pino';
-import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const LOG_TO_FILE = (process.env.LOG_TO_FILE || 'true').toLowerCase() === 'true';
@@ -31,27 +30,6 @@ const UPSTREAM_BEARER = process.env.UPSTREAM_BEARER;
 if (!UPSTREAM_BEARER) {
   logger.error('Missing UPSTREAM_BEARER env var');
   process.exit(1);
-}
-
-// Optional outbound proxy support for fetch (useful in restricted egress environments)
-const PROXY_URL = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
-const NO_PROXY = (process.env.NO_PROXY || process.env.no_proxy || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
-try {
-  if (PROXY_URL) {
-    const upstreamHost = new URL(UPSTREAM_URL).hostname;
-    const bypass = NO_PROXY.some(entry => entry === '*' || upstreamHost.endsWith(entry.replace(/^\./, '')));
-    if (!bypass) {
-      setGlobalDispatcher(new ProxyAgent(PROXY_URL));
-      logger.info({ proxyEnabled: true }, 'Using outbound proxy for upstream requests');
-    } else {
-      logger.info({ proxyEnabled: false, reason: 'NO_PROXY match' }, 'Bypassing proxy for upstream');
-    }
-  }
-} catch (e) {
-  logger.warn({ error: e.message }, 'Failed to configure proxy agent');
 }
 
 const REQUIRE_API_KEY = (process.env.REQUIRE_API_KEY || 'false').toLowerCase() === 'true';
@@ -202,10 +180,17 @@ app.get('/jobs', checkApiKey, async (req, res) => {
         });
       } catch (fetchErr) {
         clearTimeout(timeout);
-        const errMsg = fetchErr.name === 'AbortError' ? 'Upstream timeout' : fetchErr.message;
+        const errMsg = fetchErr.name === 'AbortError' ? 'Upstream timeout' : (fetchErr.message || 'fetch failed');
+        const cause = fetchErr.cause || {};
         logger.error({
           requestId,
           error: errMsg,
+          errorName: fetchErr.name,
+          causeCode: cause.code,
+          causeErrno: cause.errno,
+          causeSyscall: cause.syscall,
+          causeHost: cause.hostname || cause.host,
+          causePort: cause.port,
           upstreamURL: upstreamURL.toString(),
           timeoutMs
         }, 'Fetch error');
