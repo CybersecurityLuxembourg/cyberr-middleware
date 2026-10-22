@@ -37,8 +37,18 @@ If you enable `REQUIRE_API_KEY=true` (server-to-server), add the header from you
 curl -H "x-internal-token: $MIDDLEWARE_API_KEY" https://cyberr-proxy.cybersecurity.lu/jobs
 ```
 
+## Deployment
+
+Production tracks `main` through the existing Dokploy source integration. After
+merging, check the Dokploy deployment logs and the application's `/healthz`
+endpoint. Deployment settings and secrets are managed in Dokploy.
+
+The former GitHub Actions SSH/rsync deployment was retired on 22 October 2026
+after verifying the Dokploy source connection and automatic deployment setting.
+For a failed build, inspect the Dokploy logs before retrying. If recovery is
+needed, restore a verified previous image through Dokploy.
+
 ## Security notes
 - Never ship the upstream Bearer to the browser. Keep it server-side.
 - Prefer a dedicated domain or subdomain and restrict CORS allow-list accordingly to avoid exposing extra surface.
 - API keys in client-side JS are **not secrets**; use `REQUIRE_API_KEY=true` only for backends.
-```
